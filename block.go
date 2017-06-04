@@ -3,9 +3,10 @@ package lsm
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
 )
 
-const restartKeyInterval = 10
+const restartKeyPrefixInterval = 10
 
 type block struct {
 	data []byte
@@ -15,42 +16,65 @@ type block struct {
 // The key bytes are owned by iter and are only valid until fn
 // returns. The value is a slice of the block's bytes. Keeping
 // a reference to it will prevent GC-ing of the block.
-func (b *block) iter(fn func(key, val []byte)) error {
-	data := b.data
-	var key []byte
-	for len(data) > 0 {
-		shared, keyDelta, val, remaining, err := decodeEntry(data)
+func (b block) iter(fn func(key, val []byte)) error {
+	it := blockIterator{block: b}
+	for it.hasNext() {
+		err := it.next()
 		if err != nil {
 			return err
 		}
 
-		// reset key to only the shared
-		key = key[:shared]
-		key = append(key, keyDelta...)
-		fn(key, val)
-		data = remaining
+		fn(it.key, it.value)
 	}
 	return nil
 }
 
-func decodeEntry(entry []byte) (shared uint64, keyDelta, value, rest []byte, err error) {
-	r := bytes.NewBuffer(entry)
-	shared, err = binary.ReadUvarint(r)
-	if err != nil {
-		return 0, nil, nil, nil, err
+type blockIterator struct {
+	block block
+	off   int
+
+	entryOff   int
+	key, value []byte
+}
+
+func (bi blockIterator) hasNext() bool {
+	return len(bi.block.data) > 0
+}
+
+func (bi *blockIterator) ReadByte() (byte, error) {
+	if bi.off >= len(bi.block.data) {
+		return 0, io.ErrUnexpectedEOF
 	}
-	nonshared, err := binary.ReadUvarint(r)
+	b := bi.block.data[bi.off]
+	bi.off++
+	return b, nil
+}
+
+func (bi *blockIterator) next() error {
+	startOff := bi.off
+	shared, err := binary.ReadUvarint(bi)
 	if err != nil {
-		return 0, nil, nil, nil, err
+		return err
 	}
-	valueLen, err := binary.ReadUvarint(r)
+	nonshared, err := binary.ReadUvarint(bi)
 	if err != nil {
-		return 0, nil, nil, nil, err
+		return err
 	}
-	rest = r.Bytes()
-	keyDelta = rest[:nonshared]
-	value = rest[nonshared : nonshared+valueLen]
-	return shared, keyDelta, value, rest[nonshared+valueLen:], nil
+	valueLen, err := binary.ReadUvarint(bi)
+	if err != nil {
+		return err
+	}
+
+	rest := bi.block.data[bi.off:]
+
+	// set bi.key, bi.value for the next value
+	keyDelta := rest[:nonshared]
+	bi.key = bi.key[:shared]
+	bi.key = append(bi.key, keyDelta...)
+	bi.value = rest[nonshared : nonshared+valueLen]
+	bi.off += int(nonshared + valueLen)
+	bi.entryOff = startOff
+	return nil
 }
 
 // blockBuilder generates blocks with prefix-compressed keys.
@@ -79,7 +103,7 @@ func (bb *blockBuilder) finish() block {
 
 func (bb *blockBuilder) add(k, v []byte) {
 	shared := 0
-	if bb.counter%restartKeyInterval != 0 {
+	if bb.counter%restartKeyPrefixInterval != 0 {
 		// Count how many characters are shared between k and lastKey
 		minLen := len(bb.lastKey)
 		if len(k) < minLen {
