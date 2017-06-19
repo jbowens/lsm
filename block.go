@@ -78,6 +78,12 @@ func (bi *blockIterator) next() error {
 }
 
 // blockBuilder generates blocks with prefix-compressed keys.
+//
+// TODO(jackson): leveldb/rocksdb store an index at the end of the
+// block indicating where prefix resets happen. You only need this if
+// you want to support iterating backwards over a block or seeking to
+// a specific offset within a block. Currently, this implementation
+// only supports iterating over a block from start to end.
 type blockBuilder struct {
 	buf     bytes.Buffer
 	lastKey []byte
