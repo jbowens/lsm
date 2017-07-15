@@ -6,8 +6,6 @@ import (
 	"io"
 )
 
-const restartKeyPrefixInterval = 10
-
 type block struct {
 	data []byte
 }
@@ -85,10 +83,11 @@ func (bi *blockIterator) next() error {
 // a specific offset within a block. Currently, this implementation
 // only supports iterating over a block from start to end.
 type blockBuilder struct {
-	buf     bytes.Buffer
-	lastKey []byte
-	counter int
-	tmp     [binary.MaxVarintLen64]byte // varint scratch space
+	buf             bytes.Buffer
+	lastKey         []byte
+	counter         int
+	restartInterval int
+	tmp             [binary.MaxVarintLen64]byte // varint scratch space
 }
 
 // Reset resets the builder to be empty,
@@ -109,7 +108,7 @@ func (bb *blockBuilder) finish() block {
 
 func (bb *blockBuilder) add(k, v []byte) {
 	shared := 0
-	if bb.counter%restartKeyPrefixInterval != 0 {
+	if bb.counter%bb.restartInterval != 0 {
 		// Count how many characters are shared between k and lastKey
 		minLen := len(bb.lastKey)
 		if len(k) < minLen {
