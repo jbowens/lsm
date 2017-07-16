@@ -10,7 +10,12 @@ func TestBlockBuilder(t *testing.T) {
 	bb.add([]byte("/hello/africa"), []byte("bar"))
 	bb.add([]byte("/hello/milkyway"), []byte("foo"))
 	bb.add([]byte("/hello/world"), []byte("baz"))
-	block := bb.finish()
+	raw := bb.finish()
+
+	block, err := readBlock(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	m := map[string]string{}
 	block.iter(func(k, v []byte) {
@@ -25,6 +30,9 @@ func TestBlockBuilder(t *testing.T) {
 	if !reflect.DeepEqual(m, want) {
 		t.Errorf("got %#v, want %#v", m, want)
 	}
+	if len(block.restarts) != 0 {
+		t.Errorf("len(block.restarts) = %v, want %v", len(block.restarts), 0)
+	}
 }
 
 func TestBlockBuilderWithRestart(t *testing.T) {
@@ -35,7 +43,12 @@ func TestBlockBuilderWithRestart(t *testing.T) {
 	bb.add([]byte("/hello/milkyway"), []byte("foo"))
 	bb.add([]byte("/hello/world"), []byte("baz"))
 	bb.add([]byte("/hello/zanzibar"), []byte("bop"))
-	block := bb.finish()
+	raw := bb.finish()
+
+	block, err := readBlock(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	m := map[string]string{}
 	block.iter(func(k, v []byte) {
@@ -52,5 +65,8 @@ func TestBlockBuilderWithRestart(t *testing.T) {
 	}
 	if !reflect.DeepEqual(m, want) {
 		t.Errorf("got %#v, want %#v", m, want)
+	}
+	if len(block.restarts) != 1 {
+		t.Errorf("len(block.restarts) = %v, want %v", len(block.restarts), 1)
 	}
 }

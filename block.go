@@ -3,11 +3,43 @@ package lsm
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 )
 
+var byteOrder = binary.LittleEndian
+
+var errCorruptBlock = errors.New("corrupt block")
+
+// readBlock takes the raw bytes of a block, reads and parses the footer
+// and returns a block with the footer indexes.
+func readBlock(raw []byte) (block, error) {
+	if len(raw) < 4 {
+		return block{}, errCorruptBlock
+	}
+
+	// the trailing 4 bytes are a uint32 specifying the offset
+	// of where the footer begins.
+	footerOff := byteOrder.Uint32(raw[len(raw)-4:])
+	footer := bytes.NewReader(raw[footerOff : len(raw)-4])
+	restarts := make([]uint32, 0)
+	for footer.Len() > 0 {
+		off, err := binary.ReadUvarint(footer)
+		if err != nil {
+			return block{}, err
+		}
+		restarts = append(restarts, uint32(off))
+	}
+
+	return block{
+		data:     raw[:footerOff],
+		restarts: restarts,
+	}, nil
+}
+
 type block struct {
-	data []byte
+	data     []byte   // raw block, without footer
+	restarts []uint32 // parsed footer
 }
 
 // iter iterates over the block calling fn on each key-value pair.
@@ -77,16 +109,17 @@ func (bi *blockIterator) next() error {
 
 // blockBuilder generates blocks with prefix-compressed keys.
 //
-// TODO(jackson): leveldb/rocksdb store an index at the end of the
-// block indicating where prefix resets happen. You only need this if
-// you want to support iterating backwards over a block or seeking to
-// a specific offset within a block. Currently, this implementation
-// only supports iterating over a block from start to end.
+// Every restartInterval keys blockBuilder will restart the
+// prefix compression. It saves the restart offset to restarts.
+// Upon finishing the block, the restarts are added to the end.
+// A read may binary search through the restart points to find
+// where to begin searching.
 type blockBuilder struct {
 	buf             bytes.Buffer
 	lastKey         []byte
 	counter         int
 	restartInterval int
+	restarts        []int
 	tmp             [binary.MaxVarintLen64]byte // varint scratch space
 }
 
@@ -96,19 +129,35 @@ func (bb *blockBuilder) reset() {
 	bb.buf.Reset()
 	bb.lastKey = nil
 	bb.counter = 0
+	bb.restarts = nil
 }
 
+// size estimates the size of the finished block
 func (bb *blockBuilder) size() int {
-	return bb.buf.Len()
+	return bb.buf.Len() + 8*len(bb.restarts)
 }
 
-func (bb *blockBuilder) finish() block {
-	return block{data: bb.buf.Bytes()}
+func (bb *blockBuilder) finish() []byte {
+	// Write the restart offsets too as a footer. All integers
+	// are written as uvarints except for the final offset, which
+	// is written as a uint32.
+	// [r_0 | uvarint] [r_1 | uvarint] ... [r_n | uvarint] [offset of r_0 | uint32]
+	restartsOff := bb.buf.Len()
+	for _, off := range bb.restarts {
+		bb.putUvarint(off)
+	}
+	var tmp [4]byte
+	byteOrder.PutUint32(tmp[:], uint32(restartsOff))
+	bb.buf.Write(tmp[:])
+	return bb.buf.Bytes()
 }
 
 func (bb *blockBuilder) add(k, v []byte) {
 	shared := 0
-	if bb.counter%bb.restartInterval != 0 {
+	if bb.counter >= bb.restartInterval {
+		bb.restarts = append(bb.restarts, bb.buf.Len())
+		bb.counter = 0
+	} else {
 		// Count how many characters are shared between k and lastKey
 		minLen := len(bb.lastKey)
 		if len(k) < minLen {
