@@ -22,12 +22,19 @@ func readBlock(raw []byte) (block, error) {
 	// the trailing 4 bytes are a uint32 specifying the offset
 	// of where the footer begins.
 	footerOff := byteOrder.Uint32(raw[len(raw)-4:])
+	if int(footerOff) >= len(raw) {
+		return block{}, errCorruptBlock
+	}
+
 	footer := bytes.NewReader(raw[footerOff : len(raw)-4])
 	restarts := make([]uint32, 0)
 	for footer.Len() > 0 {
 		off, err := binary.ReadUvarint(footer)
 		if err != nil {
 			return block{}, err
+		}
+		if int(off) >= len(raw) {
+			return block{}, errCorruptBlock
 		}
 		restarts = append(restarts, uint32(off))
 	}
