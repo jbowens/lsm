@@ -134,7 +134,7 @@ func (bb *blockBuilder) reset() {
 
 // size estimates the size of the finished block
 func (bb *blockBuilder) size() int {
-	return bb.buf.Len() + 8*len(bb.restarts)
+	return bb.buf.Len() + 4*len(bb.restarts)
 }
 
 func (bb *blockBuilder) finish() []byte {
