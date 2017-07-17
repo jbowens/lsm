@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"sort"
 )
 
 var byteOrder = binary.LittleEndian
@@ -57,6 +58,51 @@ func (b block) iter(fn func(key, val []byte)) error {
 		fn(it.key, it.value)
 	}
 	return nil
+}
+
+// iterAt returns a block iterator starting at the provided
+// key, or where the provided key would be if it were contained
+// in the block. It binary searches among the block's restart
+// points and linear scans from there.
+func (b block) iterAt(key []byte) (blockIterator, error) {
+	bi := blockIterator{block: b}
+
+	var decodeErr error
+	i := sort.Search(len(b.restarts), func(r int) bool {
+		bi.off = int(b.restarts[r])
+		err := bi.next()
+		if err != nil {
+			decodeErr = err
+			return false
+		}
+
+		return bytes.Compare(bi.key, key) >= 0
+	})
+	if decodeErr != nil {
+		return bi, decodeErr
+	}
+
+	// i is now the index of the smallest restart point >= key.
+	// We now linear scan from the i-1 restart point.
+	if i == 0 {
+		// Scan from the beginning of the block, not the first
+		// restart point which is already several keys into the
+		// block.
+		bi.off = 0
+	} else {
+		bi.off = int(b.restarts[i-1])
+	}
+
+	for bi.hasNext() {
+		err := bi.next()
+		if err != nil {
+			return bi, err
+		}
+		if bytes.Compare(bi.key, key) >= 0 {
+			break
+		}
+	}
+	return bi, nil
 }
 
 type blockIterator struct {
