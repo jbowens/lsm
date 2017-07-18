@@ -19,9 +19,12 @@ func TestBlockBuilder(t *testing.T) {
 	}
 
 	m := map[string]string{}
-	block.iter(func(k, v []byte) {
+	err = block.iter(func(k, v []byte) {
 		m[string(k)] = string(v)
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	want := map[string]string{
 		"/hello/africa":   "bar",
@@ -52,9 +55,12 @@ func TestBlockBuilderWithRestart(t *testing.T) {
 	}
 
 	m := map[string]string{}
-	block.iter(func(k, v []byte) {
+	err = block.iter(func(k, v []byte) {
 		m[string(k)] = string(v)
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	want := map[string]string{
 		"/hello/africa":   "bar",
