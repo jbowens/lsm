@@ -91,6 +91,7 @@ func TestBlockIterAt(t *testing.T) {
 		lookup []byte
 		want   []byte
 	}{
+		{lookup: []byte("/aloha"), want: []byte("/hello/africa")},
 		{lookup: []byte("/hello/"), want: []byte("/hello/africa")},
 		{lookup: []byte("/hello/africa"), want: []byte("/hello/africa")},
 		{lookup: []byte("/hello/america"), want: []byte("/hello/america")},
@@ -102,6 +103,7 @@ func TestBlockIterAt(t *testing.T) {
 		{lookup: []byte("/hello/milkyway"), want: []byte("/hello/milkyway")},
 		{lookup: []byte("/hello/world"), want: []byte("/hello/world")},
 		{lookup: []byte("/hello/zanzibar"), want: []byte("/hello/zanzibar")},
+		{lookup: []byte("/zoom"), want: []byte("/hello/zanzibar")},
 	}
 
 	for _, tc := range cases {

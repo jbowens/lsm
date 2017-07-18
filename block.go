@@ -121,7 +121,7 @@ type blockIterator struct {
 }
 
 func (bi blockIterator) hasNext() bool {
-	return len(bi.block.data) > 0
+	return bi.off < len(bi.block.data)
 }
 
 func (bi *blockIterator) ReadByte() (byte, error) {
